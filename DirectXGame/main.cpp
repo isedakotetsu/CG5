@@ -3,7 +3,8 @@
 
 using namespace KamataEngine;
 
-
+//関数プロント宣言
+ID3D10Blob* CompileShader(const std::wstring& filePath, const std::string& shaderModel);
 // Windowsアプリでのエントリーポイント
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
@@ -76,55 +77,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	//塗りつぶしモードをソリッドにする（ワイヤーフレームならD3D12_FILL_MODE_WIREFRAME）
 	rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
 
-	// コンパイル済みのShaderを一時的格納の格納場所の用意
-	ID3DBlob* vsBlob = nullptr;      // 頂点シェーダオブジェクト
-	ID3DBlob* psBlob = nullptr;      // ピクセルシェーダオブジェクト
-	//ID3D10Blob* errorBlob = nullptr; // エラーオブジェクト
-	// 頂点シェーダの読み込みとコンパイル
-	std::wstring vsFile = L"TestVS.hlsl";
-	hr = D3DCompileFromFile(
-		vsFile.c_str(),                 // シェーダファイル名
-		nullptr,
-		D3D_COMPILE_STANDARD_FILE_INCLUDE, // インクルード可能にする
-		"main", "vs_5_0",                  // エントリーポイント名、シェーダモデル指定
-		D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION, // デバッグ用設定
-		0,
-		&vsBlob, &errorBlob);
 
-	if (FAILED(hr)) {
-		DebugText::GetInstance()->ConsolePrintf(
-			std::system_category().message(hr).c_str());
+	//頂点シェーダーの読み込みとコンパイル
+	ID3D10Blob* vsBlob = CompileShader(L"TestVS.hlsl", "vs_5_0");
+	assert(vsBlob != nullptr);
+	//ピクセルシェーダーの読み込みとコンパイル
+	ID3D10Blob* psBlob = CompileShader(L"TestPS.hlsl", "ps_5_0");
+	assert(psBlob != nullptr);
 
-		if (errorBlob) {
-			DebugText::GetInstance()->ConsolePrintf(
-				reinterpret_cast<char*>(errorBlob->GetBufferPointer()));
-		}
-
-		assert(false);
-	}
-
-	// ピクセルシェーダの読み込みとコンパイル
-	std::wstring psFile = L"TestPS.hlsl";
-	hr = D3DCompileFromFile(
-		psFile.c_str(),                 // シェーダファイル名
-		nullptr,
-		D3D_COMPILE_STANDARD_FILE_INCLUDE, // インクルード可能にする
-		"main", "ps_5_0",                  // エントリーポイント名、シェーダモデル指定
-		D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION, // デバッグ用設定
-		0,
-		&psBlob, &errorBlob);
-
-	if (FAILED(hr)) {
-		DebugText::GetInstance()->ConsolePrintf(
-			std::system_category().message(hr).c_str());
-
-		if (errorBlob) {
-			DebugText::GetInstance()->ConsolePrintf(
-				reinterpret_cast<char*>(errorBlob->GetBufferPointer()));
-		}
-
-		assert(false);
-	}
 
 	// PSO(PipelineStateObject)の生成 ----------
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC graphicsPipelineStateDesc{};
@@ -231,10 +191,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	//解放処理
 	vertexResource->Release();
 	graphicsPipelineState->Release();
-	if(errorBlob) 
-	{
-		errorBlob->Release();
-	}
 	rootSignature->Release();
 	vsBlob->Release();
 	psBlob->Release();
@@ -244,4 +200,32 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	Finalize();
 
 	return 0;
+}
+//シェーダーコンパイル関数
+//filePath : シェーダーファイルパス
+//shaderModel : シェーダーモデル（例："vs_5_0"）
+ID3DBlob* CompileShader(const std::wstring& filePath, const std::string& shaderModel) {
+	ID3DBlob* shaderBlob = nullptr;
+	ID3DBlob* errorBlob = nullptr;
+	HRESULT hr = D3DCompileFromFile(
+		filePath.c_str(),//シェーダーファイル名
+		nullptr,
+		D3D_COMPILE_STANDARD_FILE_INCLUDE,//インクルード可能にする
+		"main", shaderModel.c_str(),//エントリーポイント名、シェーダモデル指定
+		D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION,//デバッグ用設定
+		0,
+		&shaderBlob,
+		&errorBlob
+	);
+	//エラーが発生した場合、止める
+	if (FAILED(hr)) 
+	{
+		if (errorBlob)
+		{
+			OutputDebugStringA(reinterpret_cast<char*>(errorBlob->GetBufferPointer()));
+			errorBlob->Release();
+		}
+	}
+	//生成したshaderBlobを返す
+	return shaderBlob;
 }
