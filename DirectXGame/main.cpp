@@ -3,6 +3,7 @@
 #include "RootSignature.h"
 #include "PipelineState.h"
 #include "VertexBuffer.h"
+#include "IndexBuffer.h"
 
 using namespace KamataEngine;
 
@@ -94,19 +95,48 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	PipelineState pipelineState;
 	SetupPipelineState(pipelineState, rootSignature, vs, ps);
 
+	//リソースの確保含め、頂点データを柔軟に対応できるように　vertexdata構造体を新たに作成する
+	//vertex4 -> vertexdataに変更して利用する
+	struct VertexData {
+		Vector4 position;
+	};
+
+	//頂点データの準備
+	VertexData vertices[] =
+	{
+		{-1.0f,  1.0f, 0.0f, 1.0f},//左上
+		{ 1.0f,  1.0f, 0.0f, 1.0f},//右上
+		{-1.0f, -1.0f, 0.0f, 1.0f},//左下
+		{ 1.0f, -1.0f, 0.0f, 1.0f},//右下
+	};
+
+
 	//VertexBufferクラスを使って頂点バッファを生成する
 	VertexBuffer vertexBuffer;
-	vertexBuffer.Create(sizeof(Vector4) * 3, sizeof(Vector4));
+	vertexBuffer.Create(sizeof(vertices), sizeof(vertices[0]));
+	
+	VertexData* pGpuVertices = nullptr;
+	vertexBuffer.Get()->Map(0, nullptr, reinterpret_cast<void**>(&pGpuVertices));
 
-	//頂点resourceにデータを書き込む
-	Vector4* vertexData = nullptr;
+	for (int i = 0; i < _countof(vertices); ++i)
+	{
+		pGpuVertices[i] = vertices[i];
+	}
 
-	vertexBuffer.Get()->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
-	vertexData[0] = Vector4(-0.5f, -0.5f, 0.0f, 1.0f);//左下
-	vertexData[1] = Vector4(0.0f, 0.5f, 0.0f, 1.0f);//上
-	vertexData[2] = Vector4(0.5f, -0.5f, 0.0f, 1.0f);//右下
-	//頂点リソースのマップを解除する
-	vertexBuffer.Get()->Unmap(0, nullptr);
+	//頂点インデックスデータの準備
+	uint16_t indices[] = { 0, 1, 2, 2, 1, 3 };
+	//indexBufferクラスを使ってインデックスバッファを生成する
+	IndexBuffer indexBuffer;
+	indexBuffer.Create(sizeof(indices), sizeof(indices[0]));
+
+	//頂点インデックスリソースにデータを書き込む
+	uint16_t* pGpuIndices = nullptr;
+	indexBuffer.Get()->Map(0, nullptr, reinterpret_cast<void**>(&pGpuIndices));
+
+	for (int i = 0; i < _countof(indices); ++i)
+	{
+		pGpuIndices[i] = indices[i];
+	}
 
 	// メインループ
 	while (true) {
@@ -123,10 +153,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		commandList->SetGraphicsRootSignature(rootSignature.Get());//rootsignatureの設定
 		commandList->SetPipelineState(pipelineState.Get());//PSOの設定
 		commandList->IASetVertexBuffers(0, 1, vertexBuffer.GetView());//VBVの設定
+		commandList->IASetIndexBuffer(indexBuffer.GetView());//IBVの設定
 		//トポロジの設定
 		commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		//頂点数、インスタンス数、インデックスの開始位置、インデックスのオフセット（三角形）
-		commandList->DrawInstanced(3, 1, 0, 0);
+		commandList->DrawIndexedInstanced(_countof(indices), 1, 0, 0, 0);
 
 		// 描画終了
 		dxCommon->PostDraw();
