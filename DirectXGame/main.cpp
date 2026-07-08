@@ -7,10 +7,18 @@
 
 using namespace KamataEngine;
 
+//関数プロント宣言
+ID3D10Blob* CompileShader(const std::wstring& filePath, const std::string& shaderModel);
+void SetupPipelineState(PipelineState& pipelineState, RootSignature& rootSignature, Shader& vs, Shader& ps);
+//rendertextureresourceの生成
+ID3D12Resource* CreateRenderTextureResource(ID3D12Device* device, uint32_t width, uint32_t height, DXGI_FORMAT format, const FLOAT* clearColor);
+//DepthStencilTextureResourceの生成
+ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t width, int32_t height);
+
+
 void SetupPipelineState(PipelineState& pipelineState, RootSignature& rootSignature, Shader& vs, Shader& ps)
 {
 	
-
 	 //InputLayout
 	D3D12_INPUT_ELEMENT_DESC inputElementDescs[2] = {};
 
@@ -66,8 +74,90 @@ void SetupPipelineState(PipelineState& pipelineState, RootSignature& rootSignatu
 
 }
 
-//関数プロント宣言
-ID3D10Blob* CompileShader(const std::wstring& filePath, const std::string& shaderModel);
+
+//Rendertextureresourceの生成
+ID3D12Resource* CreateRenderTextureResource(ID3D12Device* device, uint32_t width, uint32_t height, DXGI_FORMAT clearFormat, const FLOAT* clearColor)
+{
+	// 1. 生成するRenderTextureのDescの設定
+	D3D12_RESOURCE_DESC resourceDesc{};
+	resourceDesc.Width = UINT(width);                 // RenderTextureの幅
+	resourceDesc.Height = UINT(height);               // RenderTextureの高さ
+	resourceDesc.MipLevels = 1;                       // mipmapの数
+	resourceDesc.DepthOrArraySize = 1;                // 奥行 or 配列Textureの配列数
+	resourceDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB; // TextureのFormat
+	resourceDesc.SampleDesc.Count = 1;                // サンプリングカウント 1固定
+	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; // Textureの次元数。普段使っているのは 2次元
+	resourceDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET; // RenderTargetとして使う用途
+
+	// 2. 利用するheapの設定
+	D3D12_HEAP_PROPERTIES heapProperties{};
+	heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;    // VRAM上に作る
+
+	// 3. ClearValueの設定
+	D3D12_CLEAR_VALUE clearValue;
+	clearValue.Format = clearFormat;
+	clearValue.Color[0] = clearColor[0];
+	clearValue.Color[1] = clearColor[1];
+	clearValue.Color[2] = clearColor[2];
+	clearValue.Color[3] = clearColor[3];
+
+
+	// 4. RenderTextureResourceの生成
+	ID3D12Resource* resource = nullptr;
+	HRESULT hr = device->CreateCommittedResource(
+		&heapProperties,                      // Heapの設定
+		D3D12_HEAP_FLAG_NONE,                 // Heapの特殊な設定
+		&resourceDesc,                        // Resourceの設定
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, // Pixel Shaderでアクセスできるようにする
+		&clearValue,                          // Clear時に使用
+		IID_PPV_ARGS(&resource)               // 作成するResourceポインタへのポインタ
+	);
+	assert(SUCCEEDED(hr));
+
+	return resource;
+
+	
+}
+
+ID3D12Resource* CreateDepthStencilTextureResource(ID3D12Device* device, int32_t width, int32_t height)
+{
+	// 1. 生成するDepthStencilTextureの Descの設定
+	D3D12_RESOURCE_DESC resourceDesc{};
+	resourceDesc.Width = width;                         // Textureの幅
+	resourceDesc.Height = height;                       // Textureの高さ
+	resourceDesc.MipLevels = 1;                         // mipmapの数 DepthStencilなので 1つでいい
+	resourceDesc.DepthOrArraySize = 1;                  // Textureの配列数 DepthStencilは 1つでいい
+	resourceDesc.Format = DXGI_FORMAT_D32_FLOAT;        // DepthStencilとして利用可能なフォーマット
+	resourceDesc.SampleDesc.Count = 1;                  // サンプリングカウント 1固定
+	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; // 2次元
+	resourceDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL; // DepthStencilとして使う通知
+
+	// 2. 利用するheapの設定
+	D3D12_HEAP_PROPERTIES heapProperties{};
+	heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;      // VRAM上に作る
+
+	//深度地のCLEAR設定
+	D3D12_CLEAR_VALUE depthClearValue{};
+	depthClearValue.DepthStencil.Depth = 1.0f; // 深度値の初期値
+	depthClearValue.Format = DXGI_FORMAT_D32_FLOAT;
+
+	// 3. Resourceの生成
+	ID3D12Resource* resource = nullptr;
+	HRESULT hr = device->CreateCommittedResource(
+		&heapProperties,                     // Heapの設定
+		D3D12_HEAP_FLAG_NONE,                // Heapの特殊な設定 ※後で変更？
+		&resourceDesc,                       // Resourceの設定
+		D3D12_RESOURCE_STATE_DEPTH_WRITE,    // 深度値を書き込める状態にしておく
+		&depthClearValue,                    // Clear時適用値
+		IID_PPV_ARGS(&resource)              // 作成するResourceポインタへのポインタ
+	);
+	assert(SUCCEEDED(hr));
+
+	return resource;
+
+}
+
+
 // Windowsアプリでのエントリーポイント
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
@@ -145,8 +235,91 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		pGpuIndices[i] = indices[i];
 	}
 
+	//resourceの生成
+	ID3D12Device* device = dxCommon->GetDevice();
+	HRESULT hr;
+	//RENDERTEXTURERESOURCEの生成
+
+	//画面clear色わかりやすいように赤にする
+	const FLOAT kRenderTargetClearColor[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
+
+	ID3D12Resource* renderTextureResource = CreateRenderTextureResource(
+		device, WinApp::kWindowWidth, WinApp::kWindowHeight,
+		DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, kRenderTargetClearColor);
+
+	// 1. RTV用の DescriptorHeapを作成する
+	ID3D12DescriptorHeap* rtvDescriptorHeap = nullptr;
+
+	D3D12_DESCRIPTOR_HEAP_DESC rtvDescriptorHeapDesc{};
+	rtvDescriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;    // RTV;
+	rtvDescriptorHeapDesc.NumDescriptors = 1;                       // Descriptorの個数は 1
+
+	hr = device->CreateDescriptorHeap(&rtvDescriptorHeapDesc, IID_PPV_ARGS(&rtvDescriptorHeap));
+	assert(SUCCEEDED(hr));
+
+	// CPU側からみたHANDLEを取得しておく
+	D3D12_CPU_DESCRIPTOR_HANDLE rtvHandleCPU = rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+
+	//RTV用のviewの生成
+
+	device->CreateRenderTargetView(
+		renderTextureResource,//viewと関連付けたいリソース
+		nullptr,//RTVの詳細情報
+		rtvHandleCPU//RTV用ディスクリプタヒープのCPUハンドル
+	);
+
+	// DEPTHSTENCILRESOURCEの生成
+	ID3D12Resource* depthStencilResource = CreateDepthStencilTextureResource(
+		device, WinApp::kWindowWidth, WinApp::kWindowHeight);
+
+	// 1. DSV用の DescriptorHeapを作成する
+	ID3D12DescriptorHeap* dsvDescriptorHeap = nullptr;
+	D3D12_DESCRIPTOR_HEAP_DESC dsvDescriptorHeapDesc{};
+	dsvDescriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;    // Heap Type
+	dsvDescriptorHeapDesc.NumDescriptors = 1;                       // Heap Type の個数
+	dsvDescriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;  // DSVは Shaderではないのでこちら
+
+	hr = device->CreateDescriptorHeap(&dsvDescriptorHeapDesc, IID_PPV_ARGS(&dsvDescriptorHeap));
+	assert(SUCCEEDED(hr));
+
+	// CPU側からみたHANDLEを取得しておく
+	D3D12_CPU_DESCRIPTOR_HANDLE dsvHandleCPU = dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+
+
+	// 1. SRV用の DescriptorHeapの作成
+	ID3D12DescriptorHeap* srvDescriptorHeap = nullptr;
+
+	D3D12_DESCRIPTOR_HEAP_DESC srvDescriptorHeapDesc = {};
+	srvDescriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;      // SRV
+	srvDescriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;  // PixelShader から見える
+	srvDescriptorHeapDesc.NumDescriptors = 1;
+
+	hr = device->CreateDescriptorHeap(&srvDescriptorHeapDesc, IID_PPV_ARGS(&srvDescriptorHeap));
+	assert(SUCCEEDED(hr));
+
+	// CPU側からみたHANDLE, GPU側からみたHANDLEを取得しておく
+	D3D12_CPU_DESCRIPTOR_HANDLE srvHandleCPU = srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+	D3D12_GPU_DESCRIPTOR_HANDLE srvHandleGPU = srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+
+
+	// 2. SRV(Shader Resource View)の作成
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+
+	srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;              // RenderTargetResource と同じにする
+	srvDesc.Shader4ComponentMapping =
+		D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;                  // RGBA値をそのまま Shaderに対応させる
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;         // 2Dテクスチャ
+	srvDesc.Texture2D.MipLevels = 1;                              // MipLevel は 1 しかしない
+
+	device->CreateShaderResourceView(
+		renderTextureResource,     // Viewと関連付けたいリソース
+		&srvDesc,                  // SRVの情報作成(Desc:Description、構成内容の記述)
+		srvHandleCPU               // SRVをディスクリプタヒープの CPU Handle
+	);
+
 	// メインループ
-	while (true) {
+	while (true) 
+	{
 
 		// エンジン更新（終了チェック）
 		if (Update()) {
@@ -169,7 +342,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		// 描画終了
 		dxCommon->PostDraw();
 	}
+	renderTextureResource->Release();
+	srvDescriptorHeap->Release();
+	rtvDescriptorHeap->Release();
 
+	depthStencilResource->Release();
+	dsvDescriptorHeap->Release();	
 	
 	
 	
