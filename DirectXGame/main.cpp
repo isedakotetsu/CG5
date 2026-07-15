@@ -4,6 +4,7 @@
 #include "PipelineState.h"
 #include "VertexBuffer.h"
 #include "IndexBuffer.h"
+#include "WorldTransformEx.h"
 
 using namespace KamataEngine;
 
@@ -317,6 +318,18 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		srvHandleCPU               // SRVをディスクリプタヒープの CPU Handle
 	);
 
+	//被写体の準備
+	Model* model = Model::CreateFromOBJ("terrain");
+
+	WorldTransformEx worldTransform;
+	worldTransform.Initialize();
+	worldTransform.scale_ = Vector3(1.0f, 1.0f, 1.0f);
+
+	//カメラの準備
+	Camera camera;
+	camera.Initialize();
+	camera.translation_ = Vector3(0.0f, 1.0f, 0.0f);
+
 	// メインループ
 	while (true) 
 	{
@@ -326,7 +339,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 			break;
 		}
 
+		//world変換行列の定数バッファへの転送
+		worldTransform.rotation_.y += 0.005f;//適当な回転角度
+		worldTransform.UpdateMatrix();
 
+		//cameraの更新と定数バッファへの転送
+		camera.UpdateMatrix();
 		
 
 		//TransitionBarrierを　SRVからRTVに変更する
@@ -367,6 +385,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		// 指定した深度で画面全体をクリアする
 		commandList->ClearDepthStencilView(dsvHandleCPU, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
+		//描画
+		Model::PreDraw();
+		model->Draw(worldTransform, camera);
+		Model::PostDraw();
+
 		// TransitionBarrierを張るには、PixlelShaderが使えるようにする
 		barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;         // TranslationBarrierの設定
 		barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;              // フラグはNoneとしておく
@@ -396,6 +419,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		// 描画終了
 		dxCommon->PostDraw();
 	}
+	delete model;
 	renderTextureResource->Release();
 	srvDescriptorHeap->Release();
 	rtvDescriptorHeap->Release();
